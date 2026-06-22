@@ -208,54 +208,9 @@ def _extract_dates_from_filenames(cd: CreditData, ctx: CaseContext):
         cd.okres_odsetek_od = cd.data_pierwszej_raty
 
 
-# Standard paragraph references for each bank's contract template
-PKO_PARAGRAPHS = {
-    'paragraf_rrso': '§ 1 ust. 7 i 8 Umowy, oraz załącznik do Umowy',
-    'paragraf_calkowita_kwota': '§ 1 ust. 2 pkt. 1',
-    'paragraf_wczesniejsza_splata': '§ 6',
-    'paragraf_ustep_wczesniejsza_splata': '1',
-    'paragraf_odstapienie': '§ 9',
-    'paragraf_ustep_odstapienie': '1',
-    'paragraf_zmiana_oplat': '§ 4',
-    'paragraf_prowizja_uiszczona': '§ 1 ust. 3',
-    'kryteria_zmiany_oplat_1': 'zmiany stopy referencyjnej NBP, zmiany przepisów prawa',
-    'kryteria_zmiany_oplat_2': 'zmiany rekomendacji KNF, zmiany sytuacji rynkowej, zmiany kosztów operacyjnych',
-}
-
-
-VELO_GETIN_PARAGRAPHS = {
-    'paragraf_rrso': '§ 2 Umowy',
-    'paragraf_calkowita_kwota': '§ 1',
-    'paragraf_wczesniejsza_splata': '§ 8',
-    'paragraf_ustep_wczesniejsza_splata': '1',
-    'paragraf_odstapienie': '§ 11',
-    'paragraf_ustep_odstapienie': '1',
-    'paragraf_zmiana_oplat': '§ 3',
-    'paragraf_prowizja_uiszczona': '§ 1 ust. 4',
-    'kryteria_zmiany_oplat_1': 'zmiany stopy referencyjnej NBP, zmiany przepisów prawa',
-    'kryteria_zmiany_oplat_2': 'zmiany rekomendacji organów nadzoru, zmiany kosztów operacyjnych',
-}
-
-
 def _apply_bank_specific_defaults(cd: CreditData):
-    """Apply known default paragraph references based on bank identity."""
-    if not cd.pozwany_nazwa:
-        return
-
-    bank_lower = cd.pozwany_nazwa.lower()
-
-    defaults = None
-    if 'pko' in bank_lower or 'powszechna kasa' in bank_lower:
-        defaults = PKO_PARAGRAPHS
-        if not cd.typ_oprocentowania:
-            cd.typ_oprocentowania = 'zmiennej'
-    elif 'velo' in bank_lower or 'getin' in bank_lower or 'noble' in bank_lower:
-        defaults = VELO_GETIN_PARAGRAPHS
-
-    if defaults:
-        for field_name, default_val in defaults.items():
-            if hasattr(cd, field_name) and not getattr(cd, field_name, None):
-                setattr(cd, field_name, default_val)
+    """No bank-specific paragraph defaults. All § references must be extracted from documents."""
+    pass
 
 
 def _derive_financial_fields(cd: CreditData, ctx: CaseContext):

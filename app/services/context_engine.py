@@ -322,48 +322,65 @@ class ContextEngine:
                         break
 
     def _extract_from_contract(self, ctx: CaseContext):
-        """Extract specific fields from credit agreement text."""
-        text = ctx.all_texts.get(DocumentType.UMOWA.value, '')
-        if not text:
+        """Universal extraction from ANY bank's contract — scans ALL documents."""
+        # Scan ALL document text, not just classified UMOWA (OCR may misclassify)
+        all_text = '\n'.join(doc.extracted_text for doc in ctx.classified_docs if len(doc.extracted_text) > 100)
+        if not all_text:
             return
         cd = ctx.credit_data
 
-        # Number of installments
+        # Number of installments — universal
         if not cd.liczba_rat:
-            m = re.search(r'(\d+)\s*rat(?:ach|y|a)', text)
+            m = re.search(r'(\d+)\s*rat(?:ach|y|a)', all_text)
             if m:
                 cd.liczba_rat = m.group(1)
 
-        # Day of payment
+        # Day of payment — universal
         if not cd.dzien_platnosci_raty:
-            m = re.search(r'do\s+(\d{1,2})\s*(?:\.|-go)?\s*dnia\s+każdego\s+miesiąca', text, re.I)
-            if m:
-                cd.dzien_platnosci_raty = m.group(1)
+            for pat in [r'do\s+(\d{1,2})\s*(?:\.|-go)?\s*dnia\s+ka[żz]dego\s+miesi[aą]ca',
+                        r'p[łl]atn\w+\s+do\s+(\d{1,2})\s*(?:dnia|\.)',
+                        r'(\d{1,2})\s*(?:dnia|\.)\s+ka[żz]dego\s+miesi[aą]ca']:
+                m = re.search(pat, all_text, re.I)
+                if m:
+                    cd.dzien_platnosci_raty = m.group(1)
+                    break
 
-        # Interest rate type
+        # Interest rate type — universal: scan for "stałej/zmiennej" near "stop" or "oprocentow"
         if not cd.typ_oprocentowania:
-            if re.search(r'stałe[jy]?\s+stop', text, re.I):
+            # Count occurrences to pick the dominant one
+            stala = len(re.findall(r'sta[łl]e[jy]?\s+stop|sta[łl]\w+\s+oprocentow', all_text, re.I))
+            zmienna = len(re.findall(r'zmienn\w+\s+stop|zmienn\w+\s+oprocentow', all_text, re.I))
+            if stala > zmienna:
                 cd.typ_oprocentowania = 'stałej'
-            elif re.search(r'zmienne[jy]?\s+stop', text, re.I):
+            elif zmienna > stala:
                 cd.typ_oprocentowania = 'zmiennej'
 
-        # Paragraph references for violations
-        for para_field, patterns in [
-            ('paragraf_wczesniejsza_splata', [r'§\s*(\d+).*?(?:wcześniejsz|przedterminow)']),
-            ('paragraf_odstapienie', [r'§\s*(\d+).*?(?:odstąpieni|rezygnacj)']),
-            ('paragraf_zmiana_oplat', [r'§\s*(\d+).*?(?:zmian\w+\s+opłat|zmian\w+\s+prowizj)']),
-            ('paragraf_rrso', [r'§\s*(\d+).*?(?:rrso|rzeczywist)', r'(?:rrso|rzeczywist).*?§\s*(\d+)']),
+        # Paragraph references — universal semantic scan across ALL text
+        # Search for § + number near legal keywords (works for any bank's numbering)
+        for para_field, keywords in [
+            ('paragraf_wczesniejsza_splata', ['wcze[sś]niejsz', 'przedterminow', 'sp[łl]at\w+\s+przed\s+termin']),
+            ('paragraf_odstapienie', ['odst[aą]pieni', 'rezygnacj', 'prawo\s+odst[aą]pienia']),
+            ('paragraf_zmiana_oplat', ['zmian\w+\s+op[łl]at', 'zmian\w+\s+prowizj', 'tabela\s+op[łl]at']),
+            ('paragraf_rrso', ['rrso', 'rzeczywist\w+\s+roczn']),
+            ('paragraf_prowizja_uiszczona', ['prowizj\w+\s+(?:zosta[łl]a|p[łl]atn|uiszczon|pobran)']),
+            ('paragraf_calkowita_kwota', ['ca[łl]kowit\w+\s+kwot\w+\s+(?:kredytu|po[żz]yczki)']),
         ]:
             if not getattr(cd, para_field, None):
-                for pat in patterns:
-                    m = re.search(pat, text, re.I)
-                    if m:
-                        setattr(cd, para_field, f'§ {m.group(1)}')
+                for kw in keywords:
+                    # Search: § X ... keyword  OR  keyword ... § X (within 200 chars)
+                    for pat in [rf'§\s*(\d+)(?:\s+ust\.\s*\d+)?[^§]{{0,200}}{kw}',
+                                rf'{kw}[^§]{{0,200}}§\s*(\d+)']:
+                        m = re.search(pat, all_text, re.I)
+                        if m:
+                            para_num = m.group(1)
+                            setattr(cd, para_field, f'§ {para_num}')
+                            break
+                    if getattr(cd, para_field, None):
                         break
 
-        # Change criteria (art. 30 pkt 10 violation)
+        # Change criteria — universal: find text after "zmiana opłat" listing conditions
         if not cd.kryteria_zmiany_oplat_1:
-            m = re.search(r'zmian\w+\s+(?:opłat|prowizj)\w*\s+w\s+przypadku\s*:?\s*(.{50,300}?)(?:\.|§)', text, re.I | re.DOTALL)
+            m = re.search(r'zmian\w+\s+(?:op[łl]at|prowizj)\w*\s+(?:w\s+przypadku|w\s+sytuacji|na\s+podstawie)\s*:?\s*(.{50,400}?)(?:\.\s*[A-Z§]|\n\n)', all_text, re.I | re.DOTALL)
             if m:
                 criteria = m.group(1).strip()
                 parts = re.split(r',\s*', criteria)
@@ -372,26 +389,26 @@ class ContextEngine:
                 if len(parts) > 1:
                     cd.kryteria_zmiany_oplat_2 = parts[1].strip()
 
-        # Borrower/lender names via common patterns
+        # Borrower/lender names — universal patterns across any bank's document
         if not cd.powod_imie_nazwisko:
-            for pat in [r'(?:pożyczkobiorc\w+|kredytobiorc\w+)[:\s,]+([A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+\s+[A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+)',
+            for pat in [r'(?:po[żz]yczkobiorc\w+|kredytobiorc\w+)[:\s,]+([A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+\s+[A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+)',
                         r'([A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+\s+[A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+),?\s*(?:PESEL|zamieszkał)',
                         r'PESEL[:\s]*\d{11}.*?([A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+\s+[A-ZŁŚŻŹĆĘĄÓŃ][a-ząćęłńóśźż]+)']:
-                m = re.search(pat, text)
+                m = re.search(pat, all_text)
                 if m:
                     cd.powod_imie_nazwisko = m.group(1)
                     break
 
         if not cd.pozwany_nazwa:
-            for pat in [r'(?:pożyczkodawc\w+|kredytodawc\w+|bank\w*)[:\s]+([A-ZŁŚŻŹĆĘĄÓŃ][\w\s\.]+(?:S\.A\.|sp\.\s*z\s*o\.o\.|Bank\w*))',
-                        r'([\w\s]+(?:Bank|S\.A\.)[\w\s]*?)(?:,|\sz\s+siedzibą)']:
-                m = re.search(pat, text)
+            for pat in [r'(?:po[żz]yczkodawc\w+|kredytodawc\w+)[:\s]+([A-ZŁŚŻŹĆĘĄÓŃ][\w\s\.]+(?:S\.A\.|sp\.\s*z\s*o\.o\.|Bank\w*))',
+                        r'([\w\s]+(?:Bank|S\.A\.)[\w\s]*?)(?:,|\sz\s+siedzib[aą])']:
+                m = re.search(pat, all_text)
                 if m:
                     cd.pozwany_nazwa = m.group(1).strip()
                     break
 
         if not cd.powod_pesel:
-            m = re.search(r'PESEL[:\s]*(\d{11})', text)
+            m = re.search(r'PESEL[:\s]*(\d{11})', all_text)
             if m:
                 cd.powod_pesel = m.group(1)
 
