@@ -5,7 +5,10 @@ Semantyczna analiza tekstu umowy w kontekście naruszeń art. 30 u.k.k.
 import json
 import os
 from typing import Optional
-from anthropic import Anthropic
+try:
+    from anthropic import Anthropic
+except ImportError:
+    Anthropic = None
 from app.models.schema import CreditData, AnalysisResult
 
 

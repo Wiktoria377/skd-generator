@@ -8,7 +8,13 @@ import os
 import re
 import uuid
 from typing import Optional
-from anthropic import Anthropic
+
+try:
+    from anthropic import Anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+    Anthropic = None
 
 from app.models.schema import (
     CaseContext, CreditData, ClassifiedDocument, DocumentType,
@@ -88,7 +94,7 @@ FIELD_SYNONYMS = {
 class ContextEngine:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY', '')
-        self.client = Anthropic(api_key=self.api_key) if self.api_key else None
+        self.client = Anthropic(api_key=self.api_key) if (self.api_key and HAS_ANTHROPIC) else None
 
     def build_case_context(
         self,
