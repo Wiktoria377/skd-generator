@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator Pozwów SKD v2 — Autonomiczny silnik kompilacji</title>
+    <style>
+        :root {
+            --primary: #1a365d; --primary-light: #2b6cb0; --accent: #e2a906;
+            --bg: #f0f4f8; --card: #ffffff; --border: #e2e8f0;
+            --text: #2d3748; --text-light: #718096;
+            --success: #38a169; --danger: #e53e3e; --warning: #d69e2e; --info: #3182ce;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary), #2c5282);
+            color: white; padding: 1.5rem 2rem;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .header h1 { font-size: 1.4rem; font-weight: 600; }
+        .header .subtitle { font-size: 0.85rem; opacity: 0.8; }
+        .badge { background: var(--accent); color: var(--primary); padding: 0.2rem 0.6rem; border-radius: 1rem; font-size: 0.7rem; font-weight: 700; }
+        .badge-danger { background: var(--danger); color: white; }
+        .badge-success { background: var(--success); color: white; }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+
+        /* Mode tabs */
+        .mode-tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-radius: 0.5rem; overflow: hidden; border: 2px solid var(--primary); }
+        .mode-tab { flex: 1; padding: 0.75rem; text-align: center; cursor: pointer; background: white; font-weight: 600; transition: all 0.2s; }
+        .mode-tab.active { background: var(--primary); color: white; }
+        .mode-tab:hover:not(.active) { background: #ebf8ff; }
+
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1rem; }
+        .card h2 { color: var(--primary); margin-bottom: 0.75rem; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; }
+        .card h3 { color: var(--primary-light); margin: 1rem 0 0.5rem; font-size: 1rem; }
+
+        .upload-zone {
+            border: 2px dashed var(--border); border-radius: 0.5rem; padding: 2rem;
+            text-align: center; cursor: pointer; transition: all 0.3s; margin-bottom: 1rem;
+        }
+        .upload-zone:hover { border-color: var(--primary-light); background: #ebf8ff; }
+        .upload-zone input { display: none; }
+        .upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .upload-zone.small { padding: 1rem; }
+        .upload-zone.small .icon { font-size: 1.5rem; }
+
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.5rem; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-light); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-success:hover { background: #2f855a; }
+        .btn-lg { padding: 0.9rem 2rem; font-size: 1.05rem; }
+        .btn-outline { background: transparent; border: 2px solid var(--primary); color: var(--primary); }
+
+        /* Pipeline stages */
+        .pipeline { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .pipe-stage { flex: 1; padding: 0.5rem; border-radius: 0.25rem; text-align: center; font-size: 0.75rem; font-weight: 600; background: #edf2f7; color: var(--text-light); position: relative; }
+        .pipe-stage.active { background: var(--info); color: white; animation: pulse 1.5s infinite; }
+        .pipe-stage.done { background: var(--success); color: white; }
+        .pipe-stage.error { background: var(--danger); color: white; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        /* Results */
+        .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 768px) { .result-grid { grid-template-columns: 1fr; } }
+
+        .stat-box { padding: 1rem; border-radius: 0.375rem; border: 1px solid var(--border); }
+        .stat-box .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+        .stat-box .stat-label { font-size: 0.8rem; color: var(--text-light); }
+        .stat-box.danger .stat-value { color: var(--danger); }
+        .stat-box.success .stat-value { color: var(--success); }
+
+        .doc-list { list-style: none; }
+        .doc-item { padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.25rem; margin-bottom: 0.375rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+        .doc-item .doc-name { font-weight: 500; }
+        .doc-item .doc-type { font-size: 0.75rem; color: var(--text-light); }
+        .doc-item select { font-size: 0.75rem; padding: 0.15rem 0.25rem; }
+
+        .violations-list { list-style: none; }
+        .violation { padding: 0.5rem 0.75rem; border-left: 3px solid var(--danger); background: #fff5f5; margin-bottom: 0.375rem; border-radius: 0 0.25rem 0.25rem 0; font-size: 0.85rem; }
+        .violation .v-art { font-weight: 700; color: var(--danger); }
+
+        .timeline-list { position: relative; padding-left: 1.5rem; }
+        .timeline-item { position: relative; padding: 0.5rem 0; font-size: 0.85rem; }
+        .timeline-item::before { content: ''; position: absolute; left: -1.25rem; top: 0.75rem; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--primary); }
+        .timeline-item::after { content: ''; position: absolute; left: -1.05rem; top: 1.25rem; width: 1px; height: calc(100% - 0.5rem); background: var(--border); }
+        .timeline-item:last-child::after { display: none; }
+        .timeline-date { font-weight: 600; color: var(--primary); }
+
+        .rrso-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 0.5rem; }
+        .rrso-table th, .rrso-table td { padding: 0.4rem 0.5rem; border: 1px solid var(--border); }
+        .rrso-table th { background: var(--primary); color: white; text-align: left; }
+        .diff-pos { color: var(--danger); font-weight: 700; }
+        .diff-neg { color: var(--success); font-weight: 700; }
+
+        .alert { padding: 0.75rem 1rem; border-radius: 0.25rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+        .alert-danger { background: #fff5f5; border: 1px solid #fed7d7; color: #c53030; }
+        .alert-warning { background: #fffff0; border: 1px solid #fefcbf; color: #975a16; }
+        .alert-success { background: #f0fff4; border: 1px solid #c6f6d5; color: #276749; }
+        .alert-info { background: #ebf8ff; border: 1px solid #bee3f8; color: #2b6cb0; }
+
+        .spinner { width: 2.5rem; height: 2.5rem; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-msg { text-align: center; padding: 2rem; }
+        .loading-msg p { margin-top: 0.75rem; color: var(--text-light); }
+
+        .hidden { display: none; }
+
+        .data-section { margin-top: 1rem; }
+        .data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; }
+        .data-field { font-size: 0.8rem; padding: 0.35rem 0.5rem; background: #fffff0; border: 1px solid #f6e05e; border-radius: 0.2rem; }
+        .data-field .df-label { color: var(--text-light); font-size: 0.7rem; }
+        .data-field .df-value { font-weight: 600; }
+        .data-field.missing { background: #fff5f5; border-color: #fed7d7; }
+
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .discrepancy { padding: 0.5rem; background: #fffaf0; border-left: 3px solid var(--warning); margin-bottom: 0.375rem; font-size: 0.85rem; border-radius: 0 0.25rem 0.25rem 0; }
+
+        .file-chip { display: inline-block; padding: 0.2rem 0.5rem; background: #edf2f7; border-radius: 1rem; font-size: 0.75rem; margin: 0.15rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>Generator Pozwów SKD <span class="badge">v2.0</span></h1>
+            <div class="subtitle">Autonomiczny silnik kompilacji pozwów — Sankcja Kredytu Darmowego</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Mode selector -->
+        <div class="mode-tabs">
+            <div class="mode-tab active" onclick="setMode('auto')">Tryb automatyczny (Zero-Click)</div>
+            <div class="mode-tab" onclick="setMode('step')">Tryb krok po kroku</div>
+        </div>
+
+        <!-- ==================== AUTO MODE ==================== -->
+        <div class="section active" id="sec-auto">
+            <div class="card">
+                <h2>Kompilacja pozwu — tryb autonomiczny</h2>
+                <p style="color: var(--text-light); margin-bottom: 1rem; font-size: 0.9rem;">
+                    Załaduj szablon pozwu oraz <strong>wszystkie dokumenty klienta</strong> (umowa, harmonogram,
+                    zaświadczenie, wezwanie, oświadczenie SKD, odpowiedź banku). System automatycznie je sklasyfikuje,
+                    przeanalizuje, zweryfikuje matematycznie i wygeneruje gotowy pozew.
+                </p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <div class="upload-zone small" onclick="document.getElementById('autoTemplate').click()">
+                            <div class="icon">📝</div>
+                            <div><strong>Szablon pozwu (.docx)</strong></div>
+                            <input type="file" id="autoTemplate" accept=".docx">
+                        </div>
+                        <div id="autoTemplateInfo" class="file-chip hidden"></div>
+                    </div>
+                    <div>
+                        <div class="upload-zone small" onclick="document.getElementById('autoDocs').click()">
+                            <div class="icon">📁</div>
+                            <div><strong>Dokumenty klienta</strong></div>
+                            <div style="font-size: 0.75rem; color: var(--text-light);">PDF, DOCX, skany, ZIP</div>
+                            <input type="file" id="autoDocs" accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.bmp,.zip,.xlsx,.xls,.csv" multiple>
+                        </div>
+                        <div id="autoDocsInfo" class="hidden"></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem; text-align: center;">
+                    <button class="btn btn-primary btn-lg" id="btnAutoCompile" disabled onclick="autoCompile()">
+                        Kompiluj pozew automatycznie
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pipeline progress -->
+            <div id="autoPipeline" class="hidden">
+                <div class="pipeline">
+                    <div class="pipe-stage" id="ps-ocr">OCR / Ekstrakcja</div>
+                    <div class="pipe-stage" id="ps-classify">Klasyfikacja</div>
+                    <div class="pipe-stage" id="ps-analyze">Analiza AI</div>
+                    <div class="pipe-stage" id="ps-validate">Walidacja</div>
+                    <div class="pipe-stage" id="ps-generate">Generowanie</div>
+                </div>
+                <div class="loading-msg" id="autoLoading">
+                    <div class="spinner"></div>
+                    <p><strong>Autonomiczna kompilacja pozwu w toku...</strong></p>
+                    <p>Klasyfikacja dokumentów → Analiza AI → Walidacja krzyżowa → Generowanie</p>
+                </div>
+            </div>
+
+            <!-- Results dashboard -->
+            <div id="autoResults" class="hidden"></div>
+        </div>
+
+        <!-- ==================== STEP MODE ==================== -->
+        <div class="section" id="sec-step">
+            <div class="card">
+                <h2>Kompilacja krok po kroku</h2>
+
+                <!-- Step 1: Template -->
+                <div id="step-template">
+                    <h3>Krok 1: Szablon pozwu</h3>
+                    <div class="upload-zone small" onclick="document.getElementById('stepTemplate').click()">
+                        <div class="icon">📝</div>
+                        <div><strong>Wybierz szablon (.docx)</strong></div>
+                        <input type="file" id="stepTemplate" accept=".docx">
+                    </div>
+                    <button class="btn btn-primary" id="btnStepTemplate" disabled onclick="stepUploadTemplate()">
+                        Załaduj szablon
+                    </button>
+                </div>
+
+                <!-- Step 2: Documents -->
+                <div id="step-docs" class="hidden" style="margin-top: 1.5rem;">
+                    <h3>Krok 2: Dokumenty klienta</h3>
+                    <div class="upload-zone small" onclick="document.getElementById('stepDocs').click()">
+                        <div class="icon">📁</div>
+                        <div><strong>Wybierz dokumenty (wielokrotny wybór lub ZIP)</strong></div>
+                        <input type="file" id="stepDocs" accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.bmp,.zip,.xlsx,.xls,.csv" multiple>
+                    </div>
+                    <button class="btn btn-primary" id="btnStepDocs" disabled onclick="stepUploadDocs()">
+                        Załaduj i sklasyfikuj dokumenty
+                    </button>
+                    <div id="stepClassification" class="hidden" style="margin-top: 1rem;"></div>
+                </div>
+
+                <!-- Step 3: Generate -->
+                <div id="step-generate" class="hidden" style="margin-top: 1.5rem;">
+                    <h3>Krok 3: Generowanie pozwu</h3>
+                    <button class="btn btn-success btn-lg" onclick="stepGenerate()">
+                        Generuj pozew
+                    </button>
+                </div>
+            </div>
+
+            <div id="stepResults" class="hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        let stepSessionId = null;
+
+        // File input handlers
+        document.getElementById('autoTemplate').addEventListener('change', e => {
+            if (e.target.files[0]) {
+                document.getElementById('autoTemplateInfo').textContent = e.target.files[0].name;
+                document.getElementById('autoTemplateInfo').classList.remove('hidden');
+                checkAutoReady();
+            }
+        });
+        document.getElementById('autoDocs').addEventListener('change', e => {
+            const names = [...e.target.files].map(f => f.name);
+            const info = document.getElementById('autoDocsInfo');
+            info.innerHTML = names.map(n => `<span class="file-chip">${n}</span>`).join(' ');
+            info.classList.remove('hidden');
+            checkAutoReady();
+        });
+        document.getElementById('stepTemplate').addEventListener('change', e => {
+            document.getElementById('btnStepTemplate').disabled = !e.target.files[0];
+        });
+        document.getElementById('stepDocs').addEventListener('change', e => {
+            document.getElementById('btnStepDocs').disabled = !e.target.files.length;
+        });
+
+        function checkAutoReady() {
+            const hasTemplate = document.getElementById('autoTemplate').files.length > 0;
+            const hasDocs = document.getElementById('autoDocs').files.length > 0;
+            document.getElementById('btnAutoCompile').disabled = !(hasTemplate && hasDocs);
+        }
+
+        function setMode(mode) {
+            document.querySelectorAll('.mode-tab').forEach((t, i) => {
+                t.classList.toggle('active', (mode === 'auto' && i === 0) || (mode === 'step' && i === 1));
+            });
+            document.getElementById('sec-auto').classList.toggle('active', mode === 'auto');
+            document.getElementById('sec-step').classList.toggle('active', mode === 'step');
+        }
+
+        // ==================== AUTO MODE ====================
+        async function autoCompile() {
+            const template = document.getElementById('autoTemplate').files[0];
+            const docs = document.getElementById('autoDocs').files;
+            if (!template || !docs.length) return;
+
+            const formData = new FormData();
+            formData.append('template', template);
+            for (const f of docs) formData.append('documents', f);
+
+            document.getElementById('btnAutoCompile').disabled = true;
+            document.getElementById('autoPipeline').classList.remove('hidden');
+            document.getElementById('autoResults').classList.add('hidden');
+
+            // Animate pipeline stages
+            const stages = ['ps-ocr','ps-classify','ps-analyze','ps-validate','ps-generate'];
+            let stageIdx = 0;
+            const interval = setInterval(() => {
+                if (stageIdx < stages.length) {
+                    if (stageIdx > 0) document.getElementById(stages[stageIdx-1]).classList.replace('active','done');
+                    document.getElementById(stages[stageIdx]).classList.add('active');
+                    stageIdx++;
+                }
+            }, 2000);
+
+            try {
+                const res = await fetch('/api/compile', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                clearInterval(interval);
+                stages.forEach(s => { const el = document.getElementById(s); el.classList.remove('active'); el.classList.add('done'); });
+                document.getElementById('autoLoading').classList.add('hidden');
+
+                renderResults('autoResults', data);
+            } catch (err) {
+                clearInterval(interval);
+                stages.forEach(s => document.getElementById(s).classList.add('error'));
+                document.getElementById('autoLoading').innerHTML = `<div class="alert alert-danger"><strong>Błąd:</strong> ${err.message}</div>`;
+            }
+        }
+
+        // ==================== STEP MODE ====================
+        async function stepUploadTemplate() {
+            const file = document.getElementById('stepTemplate').files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch('/api/compile/step-by-step/upload-template', { method: 'POST', body: formData });
+            const data = await res.json();
+            stepSessionId = data.session_id;
+
+            document.getElementById('step-docs').classList.remove('hidden');
+            document.getElementById('btnStepTemplate').textContent = '✓ Załadowano';
+            document.getElementById('btnStepTemplate').disabled = true;
+        }
+
+        async function stepUploadDocs() {
+            const docs = document.getElementById('stepDocs').files;
+            const formData = new FormData();
+            for (const f of docs) formData.append('documents', f);
+
+            document.getElementById('btnStepDocs').disabled = true;
+            document.getElementById('btnStepDocs').textContent = 'Klasyfikowanie...';
+
+            const res = await fetch(`/api/compile/step-by-step/upload-docs/${stepSessionId}`, { method: 'POST', body: formData });
+            const data = await res.json();
+
+            let html = '<h4 style="margin-bottom: 0.5rem;">Klasyfikacja dokumentów:</h4><ul class="doc-list">';
+            for (const doc of data.classification) {
+                html += `<li class="doc-item">
+                    <div>
+                        <span class="doc-name">${doc.filename}</span><br>
+                        <span class="doc-type">${doc.type} (pewność: ${(doc.confidence*100).toFixed(0)}%)</span>
+                    </div>
+                    <select onchange="reclassify('${doc.filename}', this.value)">
+                        <option value="${doc.type_id}" selected>${doc.type}</option>
+                        ${Object.entries(DOC_TYPES).map(([k,v]) => k !== doc.type_id ? `<option value="${k}">${v}</option>` : '').join('')}
+                    </select>
+                </li>`;
+            }
+            html += '</ul>';
+            document.getElementById('stepClassification').innerHTML = html;
+            document.getElementById('stepClassification').classList.remove('hidden');
+            document.getElementById('step-generate').classList.remove('hidden');
+            document.getElementById('btnStepDocs').textContent = '✓ Sklasyfikowano';
+        }
+
+        const DOC_TYPES = {
+            'umowa_kredytowa': 'Umowa kredytowa',
+            'regulamin': 'Regulamin / OWU',
+            'harmonogram_splat': 'Harmonogram spłat',
+            'zaswiadczenie_bankowe': 'Zaświadczenie bankowe',
+            'wezwanie_do_zaplaty': 'Wezwanie do zapłaty',
+            'potwierdzenie_nadania': 'Potwierdzenie nadania',
+            'reklamacja': 'Reklamacja',
+            'odpowiedz_banku': 'Odpowiedź banku',
+            'oswiadczenie_skd': 'Oświadczenie SKD',
+            'pismo_nbp': 'Pismo NBP',
+            'inne': 'Inny dokument',
+        };
+
+        async function reclassify(filename, newType) {
+            await fetch(`/api/compile/step-by-step/reclassify/${stepSessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename, type_id: newType }),
+            });
+        }
+
+        async function stepGenerate() {
+            const btn = document.querySelector('#step-generate button');
+            btn.disabled = true;
+            btn.textContent = 'Generowanie...';
+
+            const res = await fetch(`/api/compile/step-by-step/generate/${stepSessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            const data = await res.json();
+            renderResults('stepResults', data);
+            btn.textContent = '✓ Wygenerowano';
+        }
+
+        // ==================== RENDER RESULTS ====================
+        function renderResults(containerId, data) {
+            const c = document.getElementById(containerId);
+            c.classList.remove('hidden');
+
+            let html = '';
+
+            // Summary stats
+            const ps = data.pipeline_summary || {};
+            const filled = data.fields_filled || ps.fields_filled || 0;
+            const missing = data.fields_missing || ps.fields_missing || 0;
+            const total = filled + missing;
+
+            html += `<div class="card">
+                <h2>Wynik kompilacji</h2>
+                <div class="result-grid">
+                    <div class="stat-box success"><div class="stat-value">${filled}</div><div class="stat-label">Pola wypełnione (żółte podświetlenie)</div></div>
+                    <div class="stat-box ${missing > 0 ? 'danger' : 'success'}"><div class="stat-value">${missing}</div><div class="stat-label">Pola brakujące (czerwone podświetlenie)</div></div>
+                </div>
+                <div style="margin-top: 1rem; text-align: center;">
+                    <button class="btn btn-success btn-lg" onclick="window.open('${data.download_url}', '_blank')">
+                        Pobierz pozew (.docx)
+                    </button>
+                </div>
+            </div>`;
+
+            // Critical errors
+            if (data.critical_errors && data.critical_errors.length > 0) {
+                html += `<div class="card"><h2><span class="badge badge-danger">KRYTYCZNE</span> Brakujące dokumenty / błędy</h2>`;
+                for (const err of data.critical_errors) {
+                    html += `<div class="alert alert-danger">${err}</div>`;
+                }
+                html += '</div>';
+            }
+
+            // Classification
+            if (data.classification && data.classification.length > 0) {
+                html += `<div class="card"><h2>Klasyfikacja dokumentów</h2><ul class="doc-list">`;
+                for (const doc of data.classification) {
+                    const conf = (doc.confidence * 100).toFixed(0);
+                    const confColor = doc.confidence > 0.7 ? 'var(--success)' : doc.confidence > 0.4 ? 'var(--warning)' : 'var(--danger)';
+                    html += `<li class="doc-item"><div><span class="doc-name">${doc.filename}</span><br><span class="doc-type">${doc.type}</span></div><span style="color:${confColor}; font-weight:600;">${conf}%</span></li>`;
+                }
+                html += '</ul></div>';
+            }
+
+            // Timeline
+            if (data.timeline && data.timeline.length > 0) {
+                html += `<div class="card"><h2>Oś czasu sprawy</h2><div class="timeline-list">`;
+                for (const ev of data.timeline) {
+                    html += `<div class="timeline-item"><span class="timeline-date">${ev.date}</span> — ${ev.event}</div>`;
+                }
+                html += '</div></div>';
+            }
+
+            // Cross-doc discrepancies
+            if (data.cross_doc_discrepancies && data.cross_doc_discrepancies.length > 0) {
+                html += `<div class="card"><h2>Rozbieżności między dokumentami</h2>`;
+                for (const d of data.cross_doc_discrepancies) {
+                    html += `<div class="discrepancy"><strong>${d.pole || d.field || ''}</strong>: `;
+                    if (d.wartosc_dokument_1 || d.value_1) html += `${d.source_1 || d.zrodlo_1 || ''}: ${d.wartosc_dokument_1 || d.value_1 || ''} vs `;
+                    if (d.wartosc_dokument_2 || d.value_2) html += `${d.source_2 || d.zrodlo_2 || ''}: ${d.wartosc_dokument_2 || d.value_2 || ''}`;
+                    if (d.rekomendacja || d.recommendation) html += `<br><em>${d.rekomendacja || d.recommendation}</em>`;
+                    if (d.opis) html += d.opis;
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+
+            // Financial validation
+            if (data.financial_validation) {
+                const fv = data.financial_validation;
+                html += `<div class="card"><h2>Walidacja finansowa</h2>`;
+                html += `<table class="rrso-table"><thead><tr><th>Metoda</th><th>RRSO</th><th>Δ vs bank</th></tr></thead><tbody>`;
+                html += `<tr><td><strong>Bank</strong></td><td><strong>${fv.rrso_bank}%</strong></td><td>—</td></tr>`;
+                const cols = [
+                    ['rrso_col1', 'Kol. 1 (metoda banku)', null],
+                    ['rrso_col2', 'Kol. 2 (CKK, prowizja w ratach, z odk)', null],
+                    ['rrso_col3', 'Kol. 3 (CKK, prowizja jednoraz., z odk)', 'roznica_rrso_col3'],
+                    ['rrso_col4', 'Kol. 4 (CKK, prowizja w ratach, bez odk)', 'roznica_rrso_col4'],
+                    ['rrso_col5', 'Kol. 5 (PRAWIDŁOWE)', 'roznica_rrso_col5'],
+                ];
+                for (const [key, label, dk] of cols) {
+                    const col = fv[key];
+                    if (col) {
+                        const diff = dk ? fv[dk] : null;
+                        const cls = diff > 0 ? 'diff-pos' : diff < 0 ? 'diff-neg' : '';
+                        html += `<tr><td>${label}</td><td>${col.rrso_percent}</td><td><span class="${cls}">${diff !== null ? (diff > 0 ? '+' : '') + diff + '%' : '—'}</span></td></tr>`;
+                    }
+                }
+                html += '</tbody></table>';
+                if (fv.odsetki_od_kredytowanych_kosztow) {
+                    html += `<div class="alert alert-warning" style="margin-top:0.75rem;">
+                        <strong>Odsetki od kredytowanych kosztów:</strong> ${fv.odsetki_od_kredytowanych_kosztow} zł<br>
+                        <strong>Prawidłowy koszt:</strong> ${fv.calkowity_koszt_prawidlowy} zł |
+                        <strong>Prawidłowa kwota do zapłaty:</strong> ${fv.calkowita_do_zaplaty_prawidlowa} zł |
+                        <strong>Prawidłowa rata:</strong> ${fv.rata_prawidlowa} zł
+                    </div>`;
+                }
+                if (fv.discrepancies && fv.discrepancies.length > 0) {
+                    for (const d of fv.discrepancies) {
+                        html += `<div class="discrepancy">${d.field}: ${d.source_1}: ${d.value_1} vs ${d.source_2}: ${d.value_2}<br><em>${d.recommendation}</em></div>`;
+                    }
+                }
+                html += '</div>';
+            }
+
+            // Violations
+            if (data.violations && data.violations.length > 0) {
+                html += `<div class="card"><h2>Naruszenia art. 30 u.k.k.</h2><ul class="violations-list">`;
+                for (const v of data.violations) {
+                    html += `<li class="violation"><span class="v-art">${v.punkt_art30 || v.art_ukk || 'art. 30'}</span> ${v.opis_naruszenia || v.opis || v.message || JSON.stringify(v)}`;
+                    if (v.cytat_z_umowy || v.cytat_umowy) html += `<br><em style="color:var(--text-light);">„${v.cytat_z_umowy || v.cytat_umowy}"</em>`;
+                    html += '</li>';
+                }
+                html += '</ul></div>';
+            }
+
+            // Pending questions (HUMAN-IN-THE-LOOP)
+            if (data.pending_questions && data.pending_questions.length > 0) {
+                html += `<div class="card" style="border: 2px solid var(--warning);">
+                    <h2 style="color: var(--warning);">Wymagane odpowiedzi — system czeka na dane</h2>
+                    <p style="color: var(--text-light); margin-bottom: 1rem; font-size: 0.85rem;">
+                        Poniższe pola nie mogły zostać automatycznie ustalone z dokumentów.
+                        Uzupełnij brakujące dane, aby system mógł wygenerować kompletny pozew.
+                    </p>
+                    <div id="questionsForm_${containerId}">`;
+                for (const q of data.pending_questions) {
+                    const sev = q.severity === 'blocking' ? 'border-left: 3px solid var(--danger);' : 'border-left: 3px solid var(--warning);';
+                    html += `<div style="padding: 0.75rem; margin-bottom: 0.5rem; background: #fffff0; border-radius: 0 0.25rem 0.25rem 0; ${sev}">
+                        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">
+                            ${q.severity === 'blocking' ? '<span class="badge badge-danger">WYMAGANE</span> ' : ''}
+                            ${q.question_pl}
+                        </label>`;
+                    if (q.options && q.options.length > 0) {
+                        html += `<select data-field="${q.field_name}" style="width: 100%; padding: 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; font-size: 0.85rem;">
+                            <option value="">— wybierz —</option>`;
+                        for (const opt of q.options) {
+                            html += `<option value="${opt}">${opt}</option>`;
+                        }
+                        html += `<option value="__custom__">Inna wartość...</option></select>`;
+                    }
+                    html += `<input type="text" data-field="${q.field_name}" placeholder="Wpisz wartość"
+                        style="width: 100%; padding: 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; font-size: 0.85rem; margin-top: 0.25rem;"
+                        ${q.options && q.options.length > 0 ? 'style="display:none;"' : ''}>
+                    </div>`;
+                }
+                html += `</div>
+                    <button class="btn btn-warning" style="margin-top: 0.75rem;" onclick="submitAnswers('${containerId}', '${data.session_id}')">
+                        Wyślij odpowiedzi i wygeneruj pozew ponownie
+                    </button>
+                </div>`;
+            }
+
+            // Resolution log
+            if (data.resolution_log && data.resolution_log.length > 0) {
+                html += `<div class="card"><h2>Dziennik rozwiązywania pól</h2>
+                    <div style="max-height: 200px; overflow-y: auto; font-size: 0.75rem; font-family: monospace;">`;
+                for (const entry of data.resolution_log) {
+                    const color = entry.method === 'user_answer' ? 'var(--info)' : entry.method === 'derived' ? 'var(--success)' : entry.method === 'ai' ? '#805ad5' : 'var(--text-light)';
+                    html += `<div style="padding: 0.15rem 0; border-bottom: 1px solid #f0f0f0;">
+                        <span style="color: ${color}; font-weight: 600;">[${entry.method}]</span>
+                        ${entry.field}: <strong>${entry.value}</strong>
+                        <span style="color: var(--text-light);">← ${entry.source}</span>
+                    </div>`;
+                }
+                html += '</div></div>';
+            }
+
+            // Extracted data
+            if (data.extracted_data) {
+                html += `<div class="card"><h2>Wyodrębnione dane</h2><div class="data-grid">`;
+                const labels = {
+                    powod_imie_nazwisko: 'Powód', pozwany_nazwa: 'Pozwany', data_zawarcia_umowy: 'Data umowy',
+                    numer_umowy: 'Nr umowy', kwota_pozyczki: 'Kwota pożyczki', calkowita_kwota_kredytu: 'CKK',
+                    oprocentowanie: 'Oprocentowanie', rrso_bank: 'RRSO bank', liczba_rat: 'Liczba rat',
+                    kwota_raty: 'Rata', prowizja: 'Prowizja', ubezpieczenie: 'Ubezpieczenie',
+                    kwota_roszczenia: 'Kwota roszczenia', wps: 'WPS', oplata: 'Opłata sądowa',
+                    data_oswiadczenia_skd: 'Data oświadczenia SKD', data_wezwania_do_zaplaty: 'Data wezwania',
+                    suma_odsetek_zaplaconych: 'Odsetki zapłacone', suma_prowizji_zaplaconej: 'Prowizja zapłacona',
+                    odsetki_od_kredytowanych_kosztow: 'Odsetki od kred. kosztów',
+                    hipotetyczna_rata: 'Rata prawidłowa', kwota_roszczenia_slownie: 'Kwota słownie',
+                };
+                for (const [k, v] of Object.entries(data.extracted_data)) {
+                    const label = labels[k] || k.replace(/_/g, ' ');
+                    html += `<div class="data-field"><div class="df-label">${label}</div><div class="df-value">${v}</div></div>`;
+                }
+                html += '</div></div>';
+            }
+
+            c.innerHTML = html;
+        }
+        async function submitAnswers(containerId, sessionId) {
+            const form = document.getElementById('questionsForm_' + containerId);
+            if (!form) return;
+
+            const answers = {};
+            form.querySelectorAll('[data-field]').forEach(el => {
+                const field = el.dataset.field;
+                if (el.tagName === 'SELECT' && el.value && el.value !== '__custom__') {
+                    answers[field] = el.value;
+                } else if (el.tagName === 'INPUT' && el.value) {
+                    answers[field] = el.value;
+                }
+            });
+
+            if (Object.keys(answers).length === 0) {
+                alert('Proszę uzupełnić co najmniej jedno pole.');
+                return;
+            }
+
+            const btn = form.parentElement.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Przetwarzanie...';
+
+            try {
+                const res = await fetch(`/api/answer/${sessionId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ answers }),
+                });
+                const data = await res.json();
+                renderResults(containerId, data);
+            } catch (err) {
+                alert('Błąd: ' + err.message);
+                btn.disabled = false;
+                btn.textContent = 'Wyślij odpowiedzi i wygeneruj pozew ponownie';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: skd-generator
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    healthCheckPath: /_stcore/health
+    autoDeploy: true
