@@ -88,6 +88,11 @@ FIELD_SYNONYMS = {
     'numer_umowy': [
         'numer umowy', 'nr umowy', 'umowa nr', 'numer', 'sygnatura',
     ],
+    'ubezpieczenie': [
+        'ubezpieczenie', 'składka ubezpieczeniowa', 'składki ubezpieczeniowe',
+        'pakiet spokojna rata', 'koszt ubezpieczenia', 'składka',
+        'ubezpieczenie grupowe', 'insurance',
+    ],
 }
 
 
@@ -486,11 +491,24 @@ class ContextEngine:
             if m:
                 cd.suma_prowizji_zaplaconej = m.group(1).replace(' ', '').replace(',', '.')
 
-        # Pattern: "łącznie 48 465,85 zł" or "kwoty 48 465,85 zł"
+        # Total claim amount — try multiple patterns
         if not cd.kwota_roszczenia:
-            m = re.search(r'[łl][aą]cznie\s+([\d\s]+[.,]\d{2})\s*z[łl]', text)
+            for pat in [
+                r'[łl][aą]cznie\s+([\d\s]+[.,]\d{2})\s*z[łl]',
+                r'zap[łl]at[yę]\s+.*?kwot[yę]\s+([\d\s]+[.,]\d{2})\s*z[łl]',
+                r'wnosz[eę]\s+o\s+zap[łl]at[eę].*?([\d\s]+[.,]\d{2})\s*z[łl]',
+                r'[żz][aą]dam\s+zap[łl]aty.*?([\d\s]+[.,]\d{2})\s*z[łl]',
+            ]:
+                m = re.search(pat, text, re.I)
+                if m:
+                    cd.kwota_roszczenia = m.group(1).replace(' ', '').replace(',', '.')
+                    break
+
+        # Extract ubezpieczenie amount from wezwanie
+        if not cd.ubezpieczenie or cd.ubezpieczenie == '0':
+            m = re.search(r'(?:ubezpieczeni|sk[łl]ad\w+\s+ubezpieczeniow)\w*[:\s]+([\d\s]+[.,]\d{2})\s*z[łl]', text, re.I)
             if m:
-                cd.kwota_roszczenia = m.group(1).replace(' ', '').replace(',', '.')
+                cd.ubezpieczenie = m.group(1).replace(' ', '').replace(',', '.')
 
         # Extract interest period from wezwanie: "za okres od dnia 01.02.2025 r. do dnia 14.07.2025 r."
         m = re.search(r'(?:za\s+)?okres\s+od\s+(?:dnia\s+)?(\d{1,2}[./]\d{1,2}[./]\d{4})\s*r?\.\s*do\s+(?:dnia\s+)?(\d{1,2}[./]\d{1,2}[./]\d{4})', text, re.I)

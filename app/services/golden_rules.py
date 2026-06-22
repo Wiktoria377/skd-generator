@@ -80,9 +80,23 @@ BANK_REGISTRY = {
     'velobank': {
         'nazwa_pelna': 'VeloBank Spółka Akcyjna',
         'nazwa_skrot': 'VeloBank S.A.',
-        'krs': '0000990948',
+        'krs': '0000991173',
         'siedziba': 'Warszawa',
-        'adres': 'ul. Rondo Ignacego Daszyńskiego 2C, 00-843 Warszawa',
+        'adres': 'Rondo Ignacego Daszyńskiego 2C, 00-843 Warszawa',
+    },
+    'getin': {
+        'nazwa_pelna': 'VeloBank Spółka Akcyjna (dawniej Getin Noble Bank S.A.)',
+        'nazwa_skrot': 'VeloBank S.A.',
+        'krs': '0000991173',
+        'siedziba': 'Warszawa',
+        'adres': 'Rondo Ignacego Daszyńskiego 2C, 00-843 Warszawa',
+    },
+    'noble': {
+        'nazwa_pelna': 'VeloBank Spółka Akcyjna (dawniej Getin Noble Bank S.A.)',
+        'nazwa_skrot': 'VeloBank S.A.',
+        'krs': '0000991173',
+        'siedziba': 'Warszawa',
+        'adres': 'Rondo Ignacego Daszyńskiego 2C, 00-843 Warszawa',
     },
 }
 
@@ -178,9 +192,16 @@ def _extract_dates_from_filenames(cd: CreditData, ctx: CaseContext):
     if not cd.typ_umowy:
         cd.typ_umowy = 'pożyczki'
 
-    # ubezpieczenie defaults to "0" when not found in any document
+    # ubezpieczenie defaults to "0" ONLY if no document mentions insurance at all
     if not cd.ubezpieczenie:
-        cd.ubezpieczenie = '0'
+        has_insurance_mention = False
+        for doc in ctx.classified_docs:
+            t = doc.extracted_text.lower()
+            if any(kw in t for kw in ['ubezpiecz', 'składk', 'pakiet spokojna', 'insurance']):
+                has_insurance_mention = True
+                break
+        if not has_insurance_mention:
+            cd.ubezpieczenie = '0'
 
     # okres_odsetek_od = data_pierwszej_raty (from Excel payment schedule)
     if not cd.okres_odsetek_od and cd.data_pierwszej_raty:
@@ -202,6 +223,20 @@ PKO_PARAGRAPHS = {
 }
 
 
+VELO_GETIN_PARAGRAPHS = {
+    'paragraf_rrso': '§ 2 Umowy',
+    'paragraf_calkowita_kwota': '§ 1',
+    'paragraf_wczesniejsza_splata': '§ 8',
+    'paragraf_ustep_wczesniejsza_splata': '1',
+    'paragraf_odstapienie': '§ 11',
+    'paragraf_ustep_odstapienie': '1',
+    'paragraf_zmiana_oplat': '§ 3',
+    'paragraf_prowizja_uiszczona': '§ 1 ust. 4',
+    'kryteria_zmiany_oplat_1': 'zmiany stopy referencyjnej NBP, zmiany przepisów prawa',
+    'kryteria_zmiany_oplat_2': 'zmiany rekomendacji organów nadzoru, zmiany kosztów operacyjnych',
+}
+
+
 def _apply_bank_specific_defaults(cd: CreditData):
     """Apply known default paragraph references based on bank identity."""
     if not cd.pozwany_nazwa:
@@ -209,18 +244,18 @@ def _apply_bank_specific_defaults(cd: CreditData):
 
     bank_lower = cd.pozwany_nazwa.lower()
 
+    defaults = None
     if 'pko' in bank_lower or 'powszechna kasa' in bank_lower:
         defaults = PKO_PARAGRAPHS
-    else:
-        return
+        if not cd.typ_oprocentowania:
+            cd.typ_oprocentowania = 'zmiennej'
+    elif 'velo' in bank_lower or 'getin' in bank_lower or 'noble' in bank_lower:
+        defaults = VELO_GETIN_PARAGRAPHS
 
-    for field_name, default_val in defaults.items():
-        if hasattr(cd, field_name) and not getattr(cd, field_name, None):
-            setattr(cd, field_name, default_val)
-
-    # PKO BP uses variable rate (zmiennej)
-    if not cd.typ_oprocentowania or cd.typ_oprocentowania == 'stałej':
-        cd.typ_oprocentowania = 'zmiennej'
+    if defaults:
+        for field_name, default_val in defaults.items():
+            if hasattr(cd, field_name) and not getattr(cd, field_name, None):
+                setattr(cd, field_name, default_val)
 
 
 def _derive_financial_fields(cd: CreditData, ctx: CaseContext):
@@ -435,7 +470,11 @@ def _derive_processual_dates(cd: CreditData):
 
     # opis_kosztow_kredytowanych
     if not cd.opis_kosztow_kredytowanych and cd.prowizja:
-        cd.opis_kosztow_kredytowanych = f'prowizję w kwocie {cd.prowizja} zł'
+        ubez = _f(cd.ubezpieczenie)
+        if ubez and ubez > 0:
+            cd.opis_kosztow_kredytowanych = f'prowizję w kwocie {cd.prowizja} zł oraz składki na ubezpieczenie w kwocie {cd.ubezpieczenie} zł'
+        else:
+            cd.opis_kosztow_kredytowanych = f'prowizję w kwocie {cd.prowizja} zł'
 
     # kwota_pozyczki słownie
     if cd.kwota_pozyczki and not cd.kwota_pozyczki_slownie:
