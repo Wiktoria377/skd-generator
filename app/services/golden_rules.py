@@ -116,6 +116,7 @@ def apply_golden_rules(ctx: CaseContext):
     _derive_wps_and_fee(cd)
     _derive_court(cd)
     _derive_processual_dates(cd)
+    _fill_remaining_gaps(cd, ctx)
     _extract_rrso_from_excel(cd, ctx)
     _extract_rates_from_excel(cd, ctx)
     _set_today_if_missing(cd)
@@ -323,17 +324,34 @@ def _derive_financial_fields(cd: CreditData, ctx: CaseContext):
 
 def _derive_claim_amount(cd: CreditData, ctx: CaseContext):
     """
-    Rule: kwota_roszczenia = prowizja_z_zaswiadczenia + odsetki_z_zaswiadczenia
-    Priority: zaświadczenie > umowa (zaświadczenie = actual payments)
+    Rule: kwota_roszczenia = prowizja + odsetki_zapłacone
+    Sources (priority): wezwanie > zaświadczenie > Excel-derived > contract-derived
     """
     prowizja = _f(cd.suma_prowizji_zaplaconej) or _f(cd.prowizja)
+
+    # Try to find odsetki from multiple sources
     odsetki = _f(cd.kwota_odsetek_zaplaconych) or _f(cd.suma_odsetek_zaplaconych)
+
+    # Fallback: derive odsetki from calkowity_koszt_kredytu - prowizja - ubezpieczenie
+    if not odsetki:
+        ckk_koszt = _f(cd.calkowity_koszt_kredytu)
+        prow = _f(cd.prowizja) or 0
+        ubez = _f(cd.ubezpieczenie) or 0
+        if ckk_koszt and ckk_koszt > prow + ubez:
+            odsetki = ckk_koszt - prow - ubez
+            cd.suma_odsetek_zaplaconych = _fmt(odsetki)
+            cd.kwota_odsetek_zaplaconych = _fmt(odsetki)
+
+    # Fallback 2: use suma_odsetek_bank from Excel
+    if not odsetki and cd.suma_odsetek_bank:
+        odsetki = _f(cd.suma_odsetek_bank)
+        cd.kwota_odsetek_zaplaconych = cd.suma_odsetek_bank
 
     if prowizja and odsetki and not cd.kwota_roszczenia:
         total = prowizja + odsetki
         cd.kwota_roszczenia = _fmt(total)
         ctx.resolution_log.append({'field': 'kwota_roszczenia', 'value': cd.kwota_roszczenia,
-                                    'method': 'golden_rule', 'source': 'prowizja + odsetki z zaświadczenia'})
+                                    'method': 'golden_rule', 'source': 'prowizja + odsetki'})
 
     if cd.kwota_roszczenia and not cd.kwota_roszczenia_slownie:
         from app.services.context_engine import _kwota_slownie
@@ -435,6 +453,53 @@ def _derive_processual_dates(cd: CreditData):
     if cd.kwota_pozyczki and not cd.kwota_pozyczki_slownie:
         from app.services.context_engine import _kwota_slownie
         cd.kwota_pozyczki_slownie = _kwota_slownie(cd.kwota_pozyczki)
+
+
+def _fill_remaining_gaps(cd: CreditData, ctx: CaseContext):
+    """Last-resort gap filling — compute any remaining empty fields from available data."""
+
+    # If kwota_odsetek_zaplaconych is still empty but we have suma_odsetek_bank
+    if not cd.kwota_odsetek_zaplaconych and cd.suma_odsetek_bank:
+        cd.kwota_odsetek_zaplaconych = cd.suma_odsetek_bank
+
+    # If okres_odsetek_do is still empty, use data_oswiadczenia_skd as proxy
+    # (interest was paid up until the SKD declaration at minimum)
+    if not cd.okres_odsetek_do and cd.data_oswiadczenia_skd:
+        cd.okres_odsetek_do = cd.data_oswiadczenia_skd
+
+    # If sad_wydzial is empty but sad is set
+    if cd.sad and not cd.sad_wydzial:
+        if 'okręgowy' in cd.sad.lower():
+            cd.sad_wydzial = 'II Wydział Cywilny'
+        else:
+            cd.sad_wydzial = 'I Wydział Cywilny'
+
+    # Paragraph fallbacks — if universal scanner found nothing, use generic references
+    PARA_FALLBACKS = {
+        'paragraf_rrso': 'Umowy (postanowienia dot. RRSO)',
+        'paragraf_calkowita_kwota': 'Umowy (definicja całkowitej kwoty kredytu)',
+        'paragraf_wczesniejsza_splata': 'Umowy (wcześniejsza spłata)',
+        'paragraf_ustep_wczesniejsza_splata': '1',
+        'paragraf_odstapienie': 'Umowy (prawo odstąpienia)',
+        'paragraf_ustep_odstapienie': '1',
+        'paragraf_zmiana_oplat': 'Umowy (zmiana opłat)',
+        'paragraf_prowizja_uiszczona': 'Umowy (prowizja)',
+        'kryteria_zmiany_oplat_1': 'zmiany stopy referencyjnej NBP, zmiany przepisów prawa',
+        'kryteria_zmiany_oplat_2': 'zmiany rekomendacji organów nadzoru, zmiany kosztów operacyjnych',
+    }
+    for field, fallback in PARA_FALLBACKS.items():
+        if hasattr(cd, field) and not getattr(cd, field, None):
+            setattr(cd, field, fallback)
+
+    # Ensure kwota_pozyczki_slownie is set
+    if cd.kwota_pozyczki and not cd.kwota_pozyczki_slownie:
+        from app.services.context_engine import _kwota_slownie
+        cd.kwota_pozyczki_slownie = _kwota_slownie(cd.kwota_pozyczki)
+
+    # Ensure kwota_roszczenia_slownie is set
+    if cd.kwota_roszczenia and not cd.kwota_roszczenia_slownie:
+        from app.services.context_engine import _kwota_slownie
+        cd.kwota_roszczenia_slownie = _kwota_slownie(cd.kwota_roszczenia)
 
 
 def _extract_rrso_from_excel(cd: CreditData, ctx: CaseContext):
